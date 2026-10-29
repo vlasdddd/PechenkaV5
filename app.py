@@ -1,7 +1,6 @@
 import time
 import threading
 
-import cv2
 import mss
 import numpy as np
 import pyautogui
@@ -9,11 +8,14 @@ from pynput import keyboard
 from ultralytics import YOLO
 
 
-model = YOLO("runs/detect/cookie_detector-4/weights/best.onnx") 
+model = YOLO("runs/detect/cookie_detector-4/weights/best.onnx")
 CONFIDENCE = 0.7
 
 sct = mss.mss()
 monitor = sct.monitors[1]
+
+# Пауза PyAutoGUI после действия — 5 мс.
+pyautogui.PAUSE = 0.005
 
 # Установлено — программа работает; снято — пауза.
 active = threading.Event()
@@ -44,15 +46,15 @@ def on_release(key):
 
 
 def find_and_click(class_name):
-    # Не делать снимок, пока программа на паузе.
     active.wait()
 
+    # Скриншот с основного монитора; первые три канала — BGR для модели.
     screenshot = np.array(sct.grab(monitor))[:, :, :3]
-    results = model(screenshot, verbose=False)
+
+    results = model(screenshot, verbose=False, device="cpu")
 
     for result in results:
         for box in result.boxes:
-            # Если паузу включили во время распознавания — не кликать.
             if not active.is_set():
                 return False
 
@@ -71,19 +73,18 @@ def find_and_click(class_name):
     return False
 
 
-def click_with_timeout(class_name, timeout=5):
+def click_with_timeout(class_name, timeout=1):
     deadline = time.time() + timeout
 
     while time.time() < deadline:
-        active.wait()  # Если пауза включена, ждать повторного нажатия пробела.
+        active.wait()
 
         if find_and_click(class_name):
-            time.sleep(0.5)
             return True
 
-        time.sleep(0.2)
+        time.sleep(0.05)
 
-    print(f"{class_name} не найден за {timeout} секунд — перехожу дальше.")
+    print(f"{class_name} не найден за {timeout} секунду — перехожу дальше.")
     return False
 
 
@@ -98,14 +99,17 @@ if __name__ == "__main__":
 
     try:
         while True:
-            for _ in range(4):
-                if not click_with_timeout("game", timeout=5):
+            # Пытается нажать game до 4 раз.
+            for _ in range(10):
+                if not click_with_timeout("game", timeout=1):
                     break
 
-            click_with_timeout("taper", timeout=5)
-            click_with_timeout("reklama", timeout=5)
+            # Ищет taper до секунды, кликает один раз и сразу переходит к reklama.
+            click_with_timeout("taper", timeout=1)
+            click_with_timeout("reklama", timeout=1)
 
     except KeyboardInterrupt:
         print("\nПрограмма завершена.")
     finally:
         listener.stop()
+        sct.close()
